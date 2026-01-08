@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # 🏡 Airbnb Dynamic Pricing Dashboard
 
 A Streamlit dashboard focused on Airbnb listing pricing analysis and optimization using time-series analysis, machine learning, and interactive visualizations.

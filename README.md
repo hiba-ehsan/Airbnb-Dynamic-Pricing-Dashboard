@@ -77,8 +77,5 @@ This is a starting point for Airbnb pricing analysis. For production use, consid
 
 ---
 
-## 🤖 Agent onboarding & contributor docs
 
-Detailed onboarding steps for contributors and AI agents are available in `AGENT_INSTRUCTIONS.md`. It includes setup steps, example prompts for the agent, and guidance on where to find key files and how to add tests.
 
-=======

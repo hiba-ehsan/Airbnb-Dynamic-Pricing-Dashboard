@@ -234,15 +234,58 @@ if df is not None and not df.empty:
    
     ### Quick Stats
     """)
-   
+
+    # Defensive checks: ensure required columns exist and provide fallbacks
+    # Ensure 'our_current_price' exists (derive from 'price' if available)
+    if 'our_current_price' not in df.columns:
+        if 'price' in df.columns:
+            df['our_current_price'] = df['price']
+        else:
+            st.warning("Dataset missing 'our_current_price' or 'price' column; price metrics will show N/A")
+
+    # Ensure 'date' column exists and is datetime
+    if 'date' not in df.columns or df['date'].isna().all():
+        if 'last_review' in df.columns:
+            df['date'] = pd.to_datetime(df['last_review'], errors='coerce').fillna(pd.Timestamp.today())
+        else:
+            df['date'] = pd.Timestamp.today()
+    else:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
+    # Compute revenue if missing but possible to compute
+    if 'revenue' not in df.columns and 'bookings' in df.columns and 'our_current_price' in df.columns:
+        df['revenue'] = df['our_current_price'] * df['bookings']
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", f"{len(df):,}")
-    col2.metric("Date Range", f"{(df['date'].max() - df['date'].min()).days + 1} days")
-    col3.metric("Listing Types", len(df['room_type'].unique()))
-    col4.metric("Total Revenue", f"${df['revenue'].sum():,.0f}")
-   
+
+    # Safe Date Range metric
+    try:
+        if 'date' in df.columns and df['date'].notna().any():
+            days = (df['date'].max() - df['date'].min()).days + 1
+            date_range_str = f"{days} days"
+        else:
+            date_range_str = "N/A"
+    except Exception:
+        date_range_str = "N/A"
+    col2.metric("Date Range", date_range_str)
+
+    # Safe Listing Types metric
+    try:
+        listing_types = len(df['room_type'].unique()) if 'room_type' in df.columns else 'N/A'
+    except Exception:
+        listing_types = 'N/A'
+    col3.metric("Listing Types", listing_types)
+
+    # Safe Total Revenue metric
+    try:
+        total_revenue = f"${df['revenue'].sum():,.0f}" if 'revenue' in df.columns else 'N/A'
+    except Exception:
+        total_revenue = 'N/A'
+    col4.metric("Total Revenue", total_revenue)
+
     st.info("💡 **Tip:** Use the sidebar to switch between data sources or navigate to specific analysis pages.")
-   
+
     # Data preview
     with st.expander("📋 Preview Data", expanded=False):
         st.dataframe(df.head(10), use_container_width=True)

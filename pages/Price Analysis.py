@@ -26,11 +26,24 @@ if 'city' in df.columns:
 
 # Basic stats
 st.header("Price Statistics")
+# Ensure we have a price column to work with
+if 'our_current_price' not in df.columns:
+    if 'price' in df.columns:
+        df['our_current_price'] = df['price']
+    else:
+        st.warning("Price column not found. Price statistics and charts will be disabled for this dataset.")
+
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Mean Price", f"${df['our_current_price'].mean():.0f}")
-col2.metric("Median Price", f"${df['our_current_price'].median():.0f}")
-col3.metric("Min Price", f"${df['our_current_price'].min():.0f}")
-col4.metric("Max Price", f"${df['our_current_price'].max():.0f}")
+if 'our_current_price' in df.columns and not df['our_current_price'].isna().all():
+    col1.metric("Mean Price", f"${df['our_current_price'].mean():.0f}")
+    col2.metric("Median Price", f"${df['our_current_price'].median():.0f}")
+    col3.metric("Min Price", f"${df['our_current_price'].min():.0f}")
+    col4.metric("Max Price", f"${df['our_current_price'].max():.0f}")
+else:
+    col1.metric("Mean Price", "N/A")
+    col2.metric("Median Price", "N/A")
+    col3.metric("Min Price", "N/A")
+    col4.metric("Max Price", "N/A")
 
 # Price distribution
 st.subheader("Price Distribution")

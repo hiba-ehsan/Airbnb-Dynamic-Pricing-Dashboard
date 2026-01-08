@@ -67,7 +67,9 @@ if st.button("Train Model"):
 
 # Price simulation
 st.header("Price Simulation")
-price_input = st.number_input("Test Price ($)", min_value=1.0, value=float(df['our_current_price'].median()))
+# Use median if available, otherwise default to 1.0
+median_price = float(df['our_current_price'].median()) if 'our_current_price' in df.columns and not df['our_current_price'].isna().all() else 1.0
+price_input = st.number_input("Test Price ($)", min_value=1.0, value=median_price)
 if st.button("Run Simulation"):
     if 'demand_model' not in st.session_state:
         st.warning("Please train a model first")

@@ -208,6 +208,31 @@ else:
     from src.data_loader_airbnb import load_airbnb_data
     df = load_airbnb_data()
 
+
+# After: df = load_airbnb_data() or any data loading
+if df is not None and not df.empty:
+    # Ensure revenue column exists
+    if 'revenue' not in df.columns:
+        # Method 1: From bookings
+        if 'bookings' in df.columns and 'our_current_price' in df.columns:
+            df['revenue'] = df['bookings'] * df['our_current_price']
+        
+        # Method 2: Estimate from reviews (if no bookings)
+        elif 'number_of_reviews' in df.columns and 'price' in df.columns:
+            df['bookings'] = (df['number_of_reviews'] * 1.39).round()
+            df['revenue'] = df['bookings'] * df['price']
+        
+        # Method 3: From occupancy
+        elif 'availability_365' in df.columns and 'price' in df.columns:
+            occupied = (365 - df['availability_365']).clip(lower=0)
+            df['revenue'] = occupied * df['price']
+        
+        else:
+            df['revenue'] = 0
+    
+    # Fill NaN
+    df['revenue'] = df['revenue'].fillna(0)
+
 # Store in session state for pages to use
 if df is not None and not df.empty:
     st.session_state['airbnb_data'] = df
@@ -235,8 +260,8 @@ if df is not None and not df.empty:
     ### Quick Stats
     """)
 
-    # Defensive checks: ensure required columns exist and provide fallbacks
-    # Ensure 'our_current_price' exists (derive from 'price' if available)
+    # ensure required columns exist
+    # Ensure 'our_current_price' exists 
     if 'our_current_price' not in df.columns:
         if 'price' in df.columns:
             df['our_current_price'] = df['price']
@@ -277,12 +302,6 @@ if df is not None and not df.empty:
         listing_types = 'N/A'
     col3.metric("Listing Types", listing_types)
 
-    # Safe Total Revenue metric
-    try:
-        total_revenue = f"${df['revenue'].sum():,.0f}" if 'revenue' in df.columns else 'N/A'
-    except Exception:
-        total_revenue = 'N/A'
-    col4.metric("Total Revenue", total_revenue)
 
     st.info("💡 **Tip:** Use the sidebar to switch between data sources or navigate to specific analysis pages.")
 

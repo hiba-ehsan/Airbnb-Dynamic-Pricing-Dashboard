@@ -9,7 +9,7 @@ import io
 import base64
 
 
-# ========== Plotly Visualizations ==========
+#Plotly Visualizations
 
 def plot_price_comparison(df):
     """Compare our prices vs competitor prices over time using line chart."""
@@ -146,7 +146,7 @@ def plot_time_series_with_forecast(df, column='revenue', periods=7):
         line=dict(color='#E74C3C', width=2, dash='dash')
     ))
     
-    # Simple forecast (extend trend)
+    # Simple forecast 
     if len(df_sorted) > 1:
         last_date = df_sorted['date'].max()
         last_value = df_sorted[column].iloc[-1]

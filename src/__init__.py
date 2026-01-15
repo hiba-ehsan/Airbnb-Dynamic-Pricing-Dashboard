@@ -1,4 +1,4 @@
-"""src package initializer for Dashboard project."""
+
 __all__ = [
     "data_loader",
     "data_loader_airbnb",

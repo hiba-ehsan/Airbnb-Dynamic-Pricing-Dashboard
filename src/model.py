@@ -4,12 +4,17 @@ import statsmodels.api as sm
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, r2_score
+try:
+    from xgboost import XGBRegressor
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
 import warnings
 warnings.filterwarnings('ignore')
 
 
-# Note: We now use OLS (statsmodels) as the canonical linear model for
-# interpretability and hypothesis testing (t-stats, p-values, F-test).
+# OLS (statsmodels)
+# interpretability and hypothesis testing (t-stats, p-values, ANOVA F-test)
 
 
 def prepare_features(df):
@@ -24,7 +29,7 @@ def prepare_features(df):
     if 'date' in df.columns:
         features['day_of_week_num'] = df['date'].dt.dayofweek
         features['day_of_month'] = df['date'].dt.day
-        features['week_of_year'] = df['date'].dt.isocalendar().week
+        features['week_of_year'] = df['date'].dt.isocalendar().week.astype(int)
         features['month'] = df['date'].dt.month
     
     # Price features
@@ -34,12 +39,13 @@ def prepare_features(df):
         features['price_ratio'] = df.get('our_current_price', 1) / (df['competitor_price'] + 1)
     
     # Historical features (if available)
-    if 'occupancy_rate' in df.columns:
-        features['occupancy_rate'] = df['occupancy_rate']
+    # Note: Don't include occupancy_rate in features to avoid data leakage when predicting it
+    # if 'occupancy_rate' in df.columns:
+    #     features['occupancy_rate'] = df['occupancy_rate']
     
     # Room type encoding
     if 'room_type' in df.columns:
-        room_dummies = pd.get_dummies(df['room_type'], prefix='room')
+        room_dummies = pd.get_dummies(df['room_type'], prefix='room').astype(int)
         features = pd.concat([features, room_dummies], axis=1)
     
     # Target variable: bookings or revenue
@@ -62,15 +68,11 @@ def prepare_features(df):
     return features, target
 
 
-def train_demand_model(df, model_type='linear'):
+def train_demand_model(df, model_type='xgboost'):
     """
     Train a model to predict demand (bookings) based on features.
 
-    Currently supports only linear OLS (statsmodels) for full interpretability
-    and hypothesis testing (t-stats, p-values, F-test).
-
-    Returns:
-        fitted_statsmodels_obj, scaler (None), metrics (dict)
+    Supports 'linear' (OLS for interpretability) and 'xgboost' (for better prediction).
     """
     features, target = prepare_features(df)
 
@@ -82,6 +84,34 @@ def train_demand_model(df, model_type='linear'):
         features, target, test_size=0.2, random_state=42
     )
 
+    if model_type == 'xgboost':
+        if not XGBOOST_AVAILABLE:
+            # Fallback to linear
+            model_type = 'linear'
+        else:
+            # Use XGBoost
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            model = XGBRegressor(n_estimators=100, random_state=42, verbosity=0)
+            model.fit(X_train_scaled, y_train)
+            
+            y_pred = model.predict(X_test_scaled)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            metrics = {
+                'mae': mae,
+                'r2': r2,
+                'train_size': len(X_train),
+                'test_size': len(X_test),
+                'model_type': 'xgboost'
+            }
+            
+            return model, scaler, metrics
+    
+    # Default to linear OLS
     # Add constant for intercept
     X_train_sm = sm.add_constant(X_train, has_constant='add')
     X_test_sm = sm.add_constant(X_test, has_constant='add')
@@ -103,9 +133,9 @@ def train_demand_model(df, model_type='linear'):
         'r2': r2,
         'train_size': len(X_train),
         'test_size': len(X_test),
-        # include summary statistics
         'fvalue': getattr(ols_model, 'fvalue', None),
-        'f_pvalue': getattr(ols_model, 'f_pvalue', None)
+        'f_pvalue': getattr(ols_model, 'f_pvalue', None),
+        'model_type': 'linear'
     }
 
     return ols_model, None, metrics
@@ -167,40 +197,35 @@ def optimize_price(df, room_type=None, target_occupancy=0.85, model_type='random
         if features is None or len(features) == 0:
             continue
 
-        # Predict bookings
+        # Predict occupancy (since target is occupancy_rate)
         try:
             # If model is statsmodels OLS result (scaler is None), add constant and predict
             if scaler is None:
                 features_sm = sm.add_constant(features, has_constant='add')
-                predicted_bookings = model.predict(features_sm)
+                predicted_occupancy_values = model.predict(features_sm)
             else:
                 features_scaled = scaler.transform(features)
-                predicted_bookings = model.predict(features_scaled)
+                predicted_occupancy_values = model.predict(features_scaled)
         except Exception:
             # Skip this price if prediction fails
             continue
 
-        predicted_bookings = np.maximum(predicted_bookings, 0)  # No negative bookings
+        predicted_occupancy_values = np.clip(predicted_occupancy_values, 0, 1)  # Clip to 0-1
         
-        # Estimate occupancy (assuming fixed room capacity)
-        if 'occupancy_rate' in df_filtered.columns:
-            avg_rooms = df_filtered['occupancy_rate'].mean() * 100  # Assume 100 rooms
-            predicted_occupancy = min(predicted_bookings.mean() / avg_rooms, 1.0) if avg_rooms > 0 else 0
-        else:
-            predicted_occupancy = min(predicted_bookings.mean() / 50, 1.0)  # Rough estimate
+        # Average predicted occupancy
+        predicted_occupancy = predicted_occupancy_values.mean()
         
-        # Calculate revenue
-        predicted_revenue = (predicted_bookings * test_price).sum()
+        # Calculate revenue: occupancy * price (assuming 1 room per listing)
+        predicted_revenue = (predicted_occupancy_values * test_price).sum()
         
         results.append({
             'price': test_price,
-            'predicted_bookings': predicted_bookings.mean(),
             'predicted_occupancy': predicted_occupancy,
             'predicted_revenue': predicted_revenue
         })
         
         # Update best if better and meets occupancy target
-        if predicted_occupancy >= target_occupancy * 0.9:  # Allow 10% flexibility
+        if predicted_occupancy >= target_occupancy * 0.9: 
             if predicted_revenue > best_revenue:
                 best_price = test_price
                 best_revenue = predicted_revenue

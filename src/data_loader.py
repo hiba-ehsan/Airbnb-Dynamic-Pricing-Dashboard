@@ -1,247 +1,253 @@
+"""Data loader and processor for Airbnb dataset."""
 import pandas as pd
+import numpy as np
 import streamlit as st
-import os
-from sqlalchemy import create_engine
-from datetime import datetime
+import json
+import re
 
 
-def get_db_engine():
-    """Create database engine from environment variables or return None."""
+@st.cache_data(show_spinner="Loading Airbnb data...")
+def load_airbnb_data(csv_path="data/train.csv"):
     try:
-        user = os.getenv("DB_USER", "root")
-        password = os.getenv("DB_PASSWORD", "")
-        host = os.getenv("DB_HOST", "localhost")
-        database = os.getenv("DB_NAME", "data")
-        
-        if password:
-            engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}/{database}")
-            return engine
-    except Exception as e:
-        st.warning(f"Database connection not available: {e}")
-    return None
-
-
-def load_and_transform_real_data(booking_path, tripadvisor_path):
-    """
-    Load booking_hotel.csv and tripadvisor_room.csv and transform them into
-    the format expected by the dashboard.
-    
-    Args:
-        booking_path: Path to booking_hotel.csv
-        tripadvisor_path: Path to tripadvisor_room.csv
-    
-    Returns:
-        DataFrame with columns: date, room_type, our_current_price, competitor_price, bookings, occupancy_rate
-    """
-    import numpy as np
-    
-    # Try different encodings
-    encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
-    
-    # Load booking data
-    booking_df = None
-    for encoding in encodings:
-        try:
-            booking_df = pd.read_csv(booking_path, encoding=encoding)
-            break
-        except (UnicodeDecodeError, Exception):
-            continue
-    
-    # Load tripadvisor data
-    tripadvisor_df = None
-    for encoding in encodings:
-        try:
-            tripadvisor_df = pd.read_csv(tripadvisor_path, encoding=encoding)
-            break
-        except (UnicodeDecodeError, Exception):
-            continue
-    
-    if booking_df is None or tripadvisor_df is None:
+        df = pd.read_csv(csv_path)
+        return process_airbnb_data(df)
+    except FileNotFoundError:
+        st.error(f"File not found: {csv_path}")
         return pd.DataFrame()
-    
-    # Clean column names
-    booking_df.columns = booking_df.columns.str.strip()
-    tripadvisor_df.columns = tripadvisor_df.columns.str.strip()
-    
-    # Clean price columns (remove commas and spaces)
-    def clean_price(price_str):
-        if pd.isna(price_str):
-            return np.nan
-        try:
-            # Remove spaces, commas, and convert to float
-            cleaned = str(price_str).replace(',', '').replace(' ', '')
-            return float(cleaned)
-        except:
-            return np.nan
-    
-    # Process booking data
-    booking_df['our_current_price'] = booking_df['Room Price (in BDT or any other currency)'].apply(clean_price)
-    booking_df['room_type'] = booking_df['Room Type'].fillna('Standard')
-    booking_df['rating'] = pd.to_numeric(booking_df['Rating'], errors='coerce')
-    
-    # Process tripadvisor data as competitor prices
-    tripadvisor_df['competitor_price'] = tripadvisor_df['Room Price (in BDT or any other currency)'].apply(clean_price)
-    
-    # Create time series data (30 days)
-    dates = pd.date_range(start='2025-01-01', periods=30, freq='D')
-    
-    # Sample hotels from booking data
-    booking_sample = booking_df[booking_df['our_current_price'].notna()].head(100)
-    
-    # Get average competitor price
-    avg_competitor_price = tripadvisor_df['competitor_price'].median()
-    
-    # Create dataset
-    records = []
-    for date in dates:
-        for idx, row in booking_sample.iterrows():
-            # Base values
-            our_price = row['our_current_price']
-            
-            # Add some time-based variation (weekend prices higher)
-            day_of_week = date.dayofweek
-            price_multiplier = 1.0
-            if day_of_week >= 5:  # Weekend
-                price_multiplier = 1.15
-            
-            our_price = our_price * price_multiplier
-            
-            # Competitor price: use tripadvisor prices with variation
-            # Match by similar price range
-            price_range_lower = our_price * 0.8
-            price_range_upper = our_price * 1.2
-            competitor_matches = tripadvisor_df[
-                (tripadvisor_df['competitor_price'] >= price_range_lower) &
-                (tripadvisor_df['competitor_price'] <= price_range_upper)
-            ]
-            
-            if len(competitor_matches) > 0:
-                competitor_price = competitor_matches['competitor_price'].sample(1).iloc[0]
-            else:
-                # Fallback: use our price with some variation
-                competitor_price = our_price * np.random.uniform(0.95, 1.05)
-            
-            # Generate synthetic occupancy based on rating and day of week
-            base_occupancy = min(0.5 + (row['rating'] - 5) / 10, 0.95)
-            if day_of_week >= 5:  # Weekend
-                base_occupancy = min(base_occupancy + 0.1, 0.98)
-            
-            # Add some randomness
-            occupancy = base_occupancy + np.random.uniform(-0.1, 0.1)
-            occupancy = max(0.4, min(0.98, occupancy))
-            
-            # Calculate bookings (assume 50 rooms available)
-            bookings = int(occupancy * 50)
-            
-            records.append({
-                'date': date,
-                'room_type': row['room_type'],
-                'our_current_price': our_price,
-                'competitor_price': competitor_price,
-                'bookings': bookings,
-                'occupancy_rate': occupancy
-            })
-    
-    df = pd.DataFrame(records)
-    
-    # Remove any rows with NaN prices
-    df = df.dropna(subset=['our_current_price', 'competitor_price'])
-    
-    return df
-
-
-@st.cache_data(show_spinner="Loading hotel pricing data...")
-def load_data(use_db=False, csv_path="data/hotels.csv"):
-    """
-    Loads hotel pricing data from database or CSV file.
-    
-    Args:
-        use_db: If True, try to load from database first
-        csv_path: Path to CSV file as fallback
-    
-    Returns:
-        DataFrame with hotel pricing data
-    """
-    # Try database first if requested
-    if use_db:
-        engine = get_db_engine()
-        if engine:
-            try:
-                df = pd.read_sql("SELECT * FROM hotels", engine)
-                if not df.empty:
-                    st.success("Loaded data from database")
-                    return process_data(df)
-            except Exception as e:
-                st.warning(f"Database query failed: {e}. Falling back to CSV.")
-    
-    # Fallback to CSV - try to load actual data files first
-    try:
-        import os
-        import numpy as np
-        
-        # Check if booking and tripadvisor files exist
-        booking_path = "data/booking_hotel.csv"
-        tripadvisor_path = "data/tripadvisor_room.csv"
-        
-        if os.path.exists(booking_path) and os.path.exists(tripadvisor_path):
-            # Load and transform the actual data
-            df = load_and_transform_real_data(booking_path, tripadvisor_path)
-            if not df.empty:
-                return process_data(df)
-        
-        # Fallback to hotels.csv if it exists
-        if os.path.exists(csv_path):
-            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
-            df = None
-            for encoding in encodings:
-                try:
-                    df = pd.read_csv(csv_path, encoding=encoding)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if df is not None:
-                return process_data(df)
-        
-        st.error("No data files found. Please ensure booking_hotel.csv and tripadvisor_room.csv are in the data/ directory.")
-        return pd.DataFrame()
-            
     except Exception as e:
         st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
 
+@st.cache_data(show_spinner="Loading data...")
+def load_data(use_db=False, csv_path="data/train.csv"):
+    """
+    Loads Airbnb data from CSV file.
+    
+    Args:
+        use_db: If True, warn that db not supported
+        csv_path: Path to CSV file
+    
+    Returns:
+        DataFrame with Airbnb data
+    """
+    if use_db:
+        st.warning("Database not supported for Airbnb data. Loading from CSV instead.")
+    return load_airbnb_data(csv_path)
+
+
 def process_data(df):
-    """Process and enrich the hotel pricing dataframe."""
+    """Process and enrich the Airbnb dataframe (for uploaded data)."""
+    return process_airbnb_data(df)
+
+
+def process_airbnb_data(df):
+    """Process raw Airbnb dataframe."""
     if df.empty:
         return df
     
-    # Convert date column
-    if 'date' in df.columns:
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    # Map common column names from uploaded CSVs
+    column_mapping = {
+        'available': 'availability_365',
+        'neighbourhood': 'neighbourhood_cleansed',
+        'listing_id': 'id',
+        'city': 'city',  # already there
+        'room_type': 'room_type',  # already there
+        'price': 'price',  # already there
+        'number_of_reviews': 'number_of_reviews',  # already there
+    }
+    for old_col, new_col in column_mapping.items():
+        if old_col in df.columns and new_col not in df.columns:
+            df[new_col] = df[old_col]
     
-    # Calculate revenue if not present
-    if 'revenue' not in df.columns:
-        if 'bookings' in df.columns and 'our_current_price' in df.columns:
-            df['revenue'] = df['bookings'] * df['our_current_price']
+    # Convert log_price to actual price
+    if 'log_price' in df.columns:
+        df['price'] = np.exp(df['log_price'])
     
-    # Add time-series features
-    if 'date' in df.columns:
-        df['day_of_week'] = df['date'].dt.day_name()
-        df['day_of_month'] = df['date'].dt.day
-        df['week_of_year'] = df['date'].dt.isocalendar().week
-        df['month'] = df['date'].dt.month
-        df['year'] = df['date'].dt.year
+    # Process dates
+    if 'first_review' in df.columns:
+        df['first_review'] = pd.to_datetime(df['first_review'], errors='coerce')
+    if 'last_review' in df.columns:
+        df['last_review'] = pd.to_datetime(df['last_review'], errors='coerce')
+    if 'host_since' in df.columns:
+        df['host_since'] = pd.to_datetime(df['host_since'], errors='coerce')
     
-    # Sort by date
-    if 'date' in df.columns:
-        df = df.sort_values('date').reset_index(drop=True)
+    # Calculate days since first/last review
+    reference_date = pd.Timestamp('2017-01-01')  # Approximate dataset date
+    if 'first_review' in df.columns:
+        df['days_since_first_review'] = (reference_date - df['first_review']).dt.days
+    if 'last_review' in df.columns:
+        df['days_since_last_review'] = (reference_date - df['last_review']).dt.days
+    if 'host_since' in df.columns:
+        df['host_experience_days'] = (reference_date - df['host_since']).dt.days
+    
+    # Convert boolean columns
+    if 'cleaning_fee' in df.columns:
+        df['cleaning_fee'] = df['cleaning_fee'].astype(int)
+    if 'host_has_profile_pic' in df.columns:
+        df['host_has_profile_pic'] = (df['host_has_profile_pic'] == 't').astype(int)
+    if 'host_identity_verified' in df.columns:
+        df['host_identity_verified'] = (df['host_identity_verified'] == 't').astype(int)
+    if 'instant_bookable' in df.columns:
+        df['instant_bookable'] = (df['instant_bookable'] == 't').astype(int)
+    
+    # Process host_response_rate (remove % and convert to float)
+    if 'host_response_rate' in df.columns:
+        df['host_response_rate'] = df['host_response_rate'].str.rstrip('%').astype(float) / 100
+    
+    # Extract amenities count and specific amenities
+    df = extract_amenities_features(df)
+    
+    # Fill missing values
+    if 'bathrooms' in df.columns:
+        df['bathrooms'] = df['bathrooms'].fillna(df['bathrooms'].median())
+    if 'bedrooms' in df.columns:
+        df['bedrooms'] = df['bedrooms'].fillna(df['bedrooms'].median())
+    if 'beds' in df.columns:
+        df['beds'] = df['beds'].fillna(df['beds'].median())
+    if 'review_scores_rating' in df.columns:
+        df['review_scores_rating'] = df['review_scores_rating'].fillna(df['review_scores_rating'].median())
+    if 'host_response_rate' in df.columns:
+        df['host_response_rate'] = df['host_response_rate'].fillna(0)
+    
+    # Create price categories
+    df['price_category'] = pd.cut(df['price'], 
+                                  bins=[0, 75, 150, 250, np.inf],
+                                  labels=['Budget', 'Moderate', 'Premium', 'Luxury'])
+    
+    # Calculate review frequency
+    if 'number_of_reviews' in df.columns and 'days_since_first_review' in df.columns:
+        df['review_frequency'] = df['number_of_reviews'] / (df['days_since_first_review'] / 30 + 1)
+    else:
+        df['review_frequency'] = 0
+    
+    # Map to dashboard schema expected by pages and models
+    df['our_current_price'] = df['price']
+
+    # Competitor price: neighbourhood or city median fallback
+    neigh_col = None
+    for c in ['neighbourhood_cleansed','neighbourhood','city','region']:
+        if c in df.columns:
+            neigh_col = c
+            break
+    if neigh_col:
+        try:
+            df['competitor_price'] = df.groupby(neigh_col)['our_current_price'].transform('median').fillna(df['our_current_price'].median())
+        except Exception:
+            df['competitor_price'] = df['our_current_price'].median()
+    else:
+        df['competitor_price'] = df['our_current_price'].median()
+
+    # Occupancy heuristics
+    if 'availability_365' in df.columns:
+        df['occupancy_rate'] = 1 - (df['availability_365'] / 365).clip(0,1)
+    elif 'number_of_reviews' in df.columns:
+        # Estimate occupancy from review counts (simple heuristic)
+        max_reviews = df['number_of_reviews'].replace(0, np.nan).max()
+        if pd.isna(max_reviews):
+            max_reviews = 0
+        df['occupancy_rate'] = 0.25 + 0.5 * (df['number_of_reviews'] / (max_reviews + 1)).fillna(0)
+    else:
+        # Default occupancy if no data
+        df['occupancy_rate'] = 0.5
+
+    df['occupancy_rate'] = df['occupancy_rate'].clip(0.01, 0.99)
+    df['bookings'] = df['occupancy_rate']
+
+    # Revenue
+    df['revenue'] = df['our_current_price'] * df['bookings']
+
+    # Ensure there is a date column for time-based charts
+    if 'last_review' in df.columns and 'date' not in df.columns:
+        df['date'] = df['last_review'].fillna(pd.Timestamp.today())
+    elif 'date' not in df.columns:
+        df['date'] = pd.Timestamp.today()
+
+    # Add room_type fallback
+    if 'room_type' not in df.columns:
+        if 'property_type' in df.columns:
+            df['room_type'] = df['property_type']
+        else:
+            df['room_type'] = 'Listing'
+
+    # Final processing
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.sort_values('date').reset_index(drop=True)
+
+    return df
+
+
+def extract_amenities_features(df):
+    """Extract features from amenities JSON string."""
+    
+    # Key amenities to track
+    key_amenities = [
+        'Wifi', 'Wireless Internet', 'Internet',
+        'Kitchen', 
+        'Air conditioning', 'Heating',
+        'TV', 'Cable TV',
+        'Washer', 'Dryer',
+        'Pool', 'Hot tub',
+        'Gym', 'Elevator',
+        'Doorman', 'Parking',
+        'Breakfast',
+        'Pets allowed', 'Pet',
+        'Smoking allowed'
+    ]
+    
+    def count_amenities(amenities_str):
+        """Count number of amenities."""
+        if pd.isna(amenities_str):
+            return 0
+        try:
+            # Parse JSON-like string
+            amenities_str = amenities_str.replace('""', '"')
+            amenities = json.loads(amenities_str)
+            return len(amenities)
+        except:
+            # Fallback: count commas
+            return len(amenities_str.split(','))
+    
+    def has_amenity(amenities_str, amenity_name):
+        """Check if listing has a specific amenity."""
+        if pd.isna(amenities_str):
+            return 0
+        return 1 if any(a.lower() in amenities_str.lower() for a in [amenity_name]) else 0
+    
+    # Total amenities count
+    df['amenities_count'] = df['amenities'].apply(count_amenities)
+    
+    # Specific amenities
+    df['has_wifi'] = df['amenities'].apply(lambda x: has_amenity(x, 'wifi') or has_amenity(x, 'internet'))
+    df['has_kitchen'] = df['amenities'].apply(lambda x: has_amenity(x, 'kitchen'))
+    df['has_ac'] = df['amenities'].apply(lambda x: has_amenity(x, 'air conditioning'))
+    df['has_heating'] = df['amenities'].apply(lambda x: has_amenity(x, 'heating'))
+    df['has_tv'] = df['amenities'].apply(lambda x: has_amenity(x, 'tv'))
+    df['has_pool'] = df['amenities'].apply(lambda x: has_amenity(x, 'pool'))
+    df['has_parking'] = df['amenities'].apply(lambda x: has_amenity(x, 'parking'))
     
     return df
 
 
-def filter_data(df, date_range=None, room_types=None):
-    """Filter dataframe by date range and room types."""
+def get_price_statistics(df):
+    """Calculate price statistics for the dataset."""
+    return {
+        'mean_price': df['price'].mean(),
+        'median_price': df['price'].median(),
+        'min_price': df['price'].min(),
+        'max_price': df['price'].max(),
+        'std_price': df['price'].std(),
+        'total_listings': len(df),
+        'cities': df['city'].nunique(),
+        'property_types': df['property_type'].nunique(),
+        'avg_reviews': df['number_of_reviews'].mean(),
+        'avg_rating': df['review_scores_rating'].mean()
+    }
+
+
+def filter_data(df, date_range=None, room_types=None, cities=None, property_types=None, 
+                price_range=None, min_reviews=None):
+    """Filter Airbnb data based on various criteria."""
     filtered = df.copy()
     
     if date_range and 'date' in filtered.columns:
@@ -250,5 +256,18 @@ def filter_data(df, date_range=None, room_types=None):
     
     if room_types and 'room_type' in filtered.columns:
         filtered = filtered[filtered['room_type'].isin(room_types)]
+    
+    if cities and 'city' in filtered.columns:
+        filtered = filtered[filtered['city'].isin(cities)]
+    
+    if property_types and 'property_type' in filtered.columns:
+        filtered = filtered[filtered['property_type'].isin(property_types)]
+    
+    if price_range and 'price' in filtered.columns:
+        filtered = filtered[(filtered['price'] >= price_range[0]) & 
+                          (filtered['price'] <= price_range[1])]
+    
+    if min_reviews is not None and 'number_of_reviews' in filtered.columns:
+        filtered = filtered[filtered['number_of_reviews'] >= min_reviews]
     
     return filtered

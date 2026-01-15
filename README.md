@@ -57,19 +57,19 @@ The loader will try to infer the important columns and will create normalized co
 
 - **Overview**: KPIs, time-series, seasonality
 - **Price Analysis**: Price distributions and neighborhood comparisons
-- **ML Price Prediction**: Train models and simulate price scenarios (includes a small child-friendly "Explain like I'm 10" dropdown in the Math & Calculations panel for presenters and demos)
+- **ML Price Prediction**: Train models and simulate price scenarios
 - **Price Optimization**: ML-powered recommendations (global and by listing type)
 - **Visualization Gallery**: Multiple charts and libraries
 
 ## 🔧 Tips
 
-- If your CSV contains a `log_price` column, the loader will convert it to `price`.
+- If a CSV contains a `log_price` column, the loader will convert it to `price`.
 - If `availability_365` is present, occupancy is derived from it; otherwise a heuristic based on reviews and price is used.
 - The app stores dataset in session as `airbnb_data` and also `hotel_data` (for compatibility with existing modules).
 
 ## 🧪 Notes
 
-This is a starting point for Airbnb pricing analysis. For production use, consider:
+For production use, consider:
 - More accurate competitor pricing (web-scraped or marketplace APIs)
 - Better occupancy/booking ground-truth data
 - More robust ML models and feature engineering

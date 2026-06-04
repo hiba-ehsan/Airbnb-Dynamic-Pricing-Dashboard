@@ -63,13 +63,13 @@ The loader will try to infer the important columns and will create normalized co
 
 ## 🔧 Tips
 
-- If your CSV contains a `log_price` column, the loader will convert it to `price`.
+- If a CSV contains a `log_price` column, the loader will convert it to `price`.
 - If `availability_365` is present, occupancy is derived from it; otherwise a heuristic based on reviews and price is used.
 - The app stores dataset in session as `airbnb_data` and also `hotel_data` (for compatibility with existing modules).
 
 ## 🧪 Notes
 
-This is a starting point for Airbnb pricing analysis. For production use, consider:
+For production use, consider:
 - More accurate competitor pricing (web-scraped or marketplace APIs)
 - Better occupancy/booking ground-truth data
 - More robust ML models and feature engineering

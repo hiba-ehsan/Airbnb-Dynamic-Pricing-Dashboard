@@ -57,7 +57,7 @@ The loader will try to infer the important columns and will create normalized co
 
 - **Overview**: KPIs, time-series, seasonality
 - **Price Analysis**: Price distributions and neighborhood comparisons
-- **ML Price Prediction**: Train models and simulate price scenarios (includes a small child-friendly "Explain like I'm 10" dropdown in the Math & Calculations panel for presenters and demos)
+- **ML Price Prediction**: Train models and simulate price scenarios
 - **Price Optimization**: ML-powered recommendations (global and by listing type)
 - **Visualization Gallery**: Multiple charts and libraries
 

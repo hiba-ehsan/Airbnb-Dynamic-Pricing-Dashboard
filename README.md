@@ -1,9 +1,9 @@
 
-# 🏡 Airbnb Dynamic Pricing Dashboard
+# Airbnb Dynamic Pricing Dashboard
 
 A Streamlit dashboard focused on Airbnb listing pricing analysis and optimization using time-series analysis, machine learning, and interactive visualizations.
 
-## 📋 Overview
+## Overview
 
 This project applies pricing analytics specifically to Airbnb datasets. It demonstrates:
 
@@ -20,7 +20,7 @@ This project applies pricing analytics specifically to Airbnb datasets. It demon
 - Visualization gallery tailored to Airbnb features and amenities
 - CSV upload or sample `data/train.csv` support
 
-## 📦 Installation
+## Installation
 
 1. Create and activate a virtual environment (Python 3.11 recommended)
    - Windows (PowerShell): `python -m venv .venv; .\\.venv\\Scripts\\Activate.ps1`
@@ -38,7 +38,7 @@ streamlit run app.py
 
 > Tip: Run `pytest -q` to execute the test suite while developing.
 
-## 📊 Data Expectations
+## Data Expectations
 
 The app supports typical Airbnb listings CSVs (e.g., Kaggle-style `train.csv`). Recommended columns (one or more):
 
@@ -53,7 +53,7 @@ The loader will try to infer the important columns and will create normalized co
 
 - `our_current_price`, `competitor_price`, `bookings`, `occupancy_rate`, `revenue`, `date`
 
-## 🧭 Pages
+## Pages
 
 - **Overview**: KPIs, time-series, seasonality
 - **Price Analysis**: Price distributions and neighborhood comparisons
@@ -61,13 +61,11 @@ The loader will try to infer the important columns and will create normalized co
 - **Price Optimization**: ML-powered recommendations (global and by listing type)
 - **Visualization Gallery**: Multiple charts and libraries
 
-## 🔧 Tips
+## Endnotes:
 
 - If a CSV contains a `log_price` column, the loader will convert it to `price`.
 - If `availability_365` is present, occupancy is derived from it; otherwise a heuristic based on reviews and price is used.
 - The app stores dataset in session as `airbnb_data` and also `hotel_data` (for compatibility with existing modules).
-
-## 🧪 Notes
 
 For production use, consider:
 - More accurate competitor pricing (web-scraped or marketplace APIs)

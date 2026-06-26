@@ -40,6 +40,8 @@ streamlit run app.py
 
 ## Data Expectations
 
+Dataset that I used: 'https://www.kaggle.com/datasets/stevezhenghp/airbnb-price-prediction/data'
+
 The app supports typical Airbnb listings CSVs (e.g., Kaggle-style `train.csv`). Recommended columns (one or more):
 
 - `price` or `log_price`
